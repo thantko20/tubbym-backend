@@ -3,8 +3,11 @@ package services
 import (
 	"context"
 	"database/sql"
+	"slices"
 	"strings"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/thantko20/tubbym-backend/internal/domain"
 )
 
@@ -67,10 +70,20 @@ func (s *videoService) findVideos(ctx context.Context, filters *domain.VideoFilt
 	}
 	defer rows.Close()
 
+	var createdAt int64
+	var updatedAt int64
+	var deletedAt sql.NullInt64
 	for rows.Next() {
 		var video domain.Video
-		if err := rows.Scan(&video.ID, &video.Title, &video.Description, &video.Duration, &video.Views, &video.Key, &video.ThumbnailKey, &video.CreatedAt, &video.UpdatedAt, &video.DeletedAt); err != nil {
+		if err := rows.Scan(&video.ID, &video.Title, &video.Description, &video.Duration, &video.Views, &video.Key, &video.ThumbnailKey,
+			&createdAt, &updatedAt, &deletedAt); err != nil {
 			return nil, 0, err
+		}
+		video.CreatedAt = time.Unix(createdAt, 0)
+		video.UpdatedAt = time.Unix(updatedAt, 0)
+		if deletedAt.Valid {
+			video.DeletedAt = new(time.Time)
+			*video.DeletedAt = time.Unix(deletedAt.Int64, 0)
 		}
 		videos = append(videos, video)
 	}
@@ -81,4 +94,61 @@ func (s *videoService) findVideos(ctx context.Context, filters *domain.VideoFilt
 
 	return videos, count, nil
 
+}
+
+func (s *videoService) CreateVideo(ctx context.Context, payload domain.CreateVideoReq) (*domain.Video, error) {
+
+	validatedPayload, err := s.validateCreateVideoReq(&payload)
+	if err != nil {
+		return nil, err
+	}
+
+	newVideo := domain.Video{
+		ID:          uuid.New().String(),
+		Title:       validatedPayload.Title,
+		Description: validatedPayload.Description,
+		Visibility:  validatedPayload.Visibility,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+
+	if err = s.insertVideo(ctx, newVideo); err != nil {
+		return nil, err
+	}
+
+	return &newVideo, nil
+}
+
+func (s *videoService) insertVideo(ctx context.Context, video domain.Video) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO videos (id, title, description, duration, views, key, thumbnail_key, visibility, created_at, updated_at, deleted_at) 
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		video.ID, video.Title, video.Description, video.Duration, video.Views, video.Key, video.ThumbnailKey, video.Visibility, video.CreatedAt.Unix(), video.UpdatedAt.Unix(), nil)
+	return err
+}
+
+func (s *videoService) validateCreateVideoReq(payload *domain.CreateVideoReq) (*domain.CreateVideoReq, error) {
+
+	if payload.Title == "" {
+		return nil, domain.NewAppError(domain.ErrCodeInvalidVideoData, "Video title is required", nil)
+	}
+
+	if payload.Description == "" {
+		return nil, domain.NewAppError(domain.ErrCodeInvalidVideoData, "Video description is required", nil)
+	}
+
+	if payload.Visibility == "" {
+		// defaults to public
+		payload.Visibility = "public"
+	}
+
+	validVisibility := slices.Contains(
+		[]domain.VideoVisibility{domain.VideoVisibilityPrivate, domain.VideoVisibilityPublic},
+		payload.Visibility,
+	)
+
+	if !validVisibility {
+		return nil, domain.NewAppError(domain.ErrCodeInvalidVideoData, "Video visibility must be either 'public' or 'private'", nil)
+	}
+	return payload, nil
 }

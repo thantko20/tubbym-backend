@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/gofiber/fiber/v2"
@@ -12,7 +13,7 @@ import (
 )
 
 func main() {
-	db, err := sql.Open("sqlite3", "./test.db")
+	db, err := sql.Open("sqlite3", "./data.db")
 	if err != nil {
 		slog.Error("Failed to open database", "error", err)
 		return
@@ -90,6 +91,52 @@ func main() {
 			"message": "Video retrieved successfully",
 			"data":    video,
 			"count":   nil,
+		})
+	})
+
+	app.Post("/videos", func(c *fiber.Ctx) error {
+		reqPayload := new(domain.CreateVideoReq)
+
+		if err := c.BodyParser(reqPayload); err != nil {
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+				"success": false,
+				"message": "Invalid request payload",
+				"code":    domain.ErrCodeValidation,
+			})
+		}
+
+		video, err := videoService.CreateVideo(c.Context(), *reqPayload)
+
+		if err != nil {
+			fmt.Println("Error creating video:", err)
+			var domainErr *domain.AppError
+			if errors.As(err, &domainErr) {
+				switch domainErr.Code {
+				case domain.ErrCodeInvalidVideoData:
+					return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+						"success": false,
+						"message": domainErr.Message,
+						"code":    domainErr.Code,
+					})
+				default:
+					return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"success": false,
+						"message": "Internal Server Error",
+						"code":    domainErr.Code,
+					})
+				}
+			}
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Internal Server Error",
+				"code":    9999,
+			})
+		}
+
+		return c.Status(fiber.StatusCreated).JSON(fiber.Map{
+			"success": true,
+			"message": "Video created successfully",
+			"data":    video,
 		})
 	})
 

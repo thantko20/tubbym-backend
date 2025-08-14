@@ -4,6 +4,10 @@ import "fmt"
 
 type ErrorCode int
 
+const (
+	ErrCodeValidation = 1004
+)
+
 type AppError struct {
 	Code    ErrorCode
 	Message string
