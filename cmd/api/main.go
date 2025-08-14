@@ -30,7 +30,7 @@ func main() {
 	app.Get("/videos", func(c *fiber.Ctx) error {
 		videos, count, err := videoService.GetVideos(c.Context(), nil)
 
-		var domainErr *domain.Error
+		var domainErr *domain.AppError
 
 		if errors.As(err, &domainErr) {
 			switch domainErr.Code {
@@ -38,7 +38,7 @@ func main() {
 				return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 					"success": false,
 					"message": "Internal Server Error",
-					"data":    domain.ErrInternalServer,
+					"code":    domainErr.Code,
 				})
 			}
 		}
@@ -47,7 +47,7 @@ func main() {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"success": false,
 				"message": "Internal Server Error",
-				"code":    domain.ErrInternalServer,
+				"code":    9999,
 			})
 		}
 
@@ -62,10 +62,10 @@ func main() {
 	app.Get("/videos/:id", func(c *fiber.Ctx) error {
 		video, err := videoService.GetVideoByID(c.Context(), c.Params("id"))
 		if err != nil {
-			var domainErr *domain.Error
+			var domainErr *domain.AppError
 			if errors.As(err, &domainErr) {
 				switch domainErr.Code {
-				case services.ErrVideoNotFound:
+				case domain.ErrCodeVideoNotFound:
 					return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
 						"success": false,
 						"message": domainErr.Message,
@@ -75,14 +75,14 @@ func main() {
 					return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 						"success": false,
 						"message": "Internal Server Error",
-						"data":    domain.ErrInternalServer,
+						"code":    domainErr.Code,
 					})
 				}
 			}
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 				"success": false,
 				"message": "Internal Server Error",
-				"data":    domain.ErrInternalServer,
+				"data":    9999,
 			})
 		}
 		return c.Status(fiber.StatusOK).JSON(fiber.Map{

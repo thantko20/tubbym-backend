@@ -1,5 +1,11 @@
 package domain
 
+const (
+	ErrCodeVideoNotFound      ErrorCode = 2001
+	ErrCodeVideoInvalidID     ErrorCode = 2002
+	ErrCodeVideoDatabaseError ErrorCode = 2003
+)
+
 type Video struct {
 	ID           string `json:"id" db:"id"`
 	Title        string `json:"title" db:"title"`
@@ -18,6 +24,12 @@ type VideoFilters struct {
 }
 
 type VideoService interface {
-	GetVideoByID(id string) (*Video, Error)
-	GetVideos(filters VideoFilters) ([]Video, int, Error)
+	GetVideoByID(id string) (*Video, error)
+	GetVideos(filters VideoFilters) ([]Video, int, error)
+}
+
+type VideoReq struct {
+	Title       string `json:"title" form:"title"`
+	Description string `json:"description" form:"description"`
+	Visibility  string `json:"visibility" form:"visibility"`
 }
