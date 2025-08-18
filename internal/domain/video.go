@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"path/filepath"
+	"time"
+)
 
 const (
 	ErrCodeVideoNotFound      ErrorCode = 2001
@@ -9,11 +12,23 @@ const (
 	ErrCodeInvalidVideoData   ErrorCode = 2004
 )
 
+// CloudFront distribution URL for video streaming
+// TODO: Move this to environment configuration
+const CloudFrontDistributionURL = "https://d29kwr3nijxedo.cloudfront.net"
+
 type VideoVisibility string
 
 const (
 	VideoVisibilityPublic  VideoVisibility = "public"
 	VideoVisibilityPrivate VideoVisibility = "private"
+)
+
+type VideoStatus string
+
+const (
+	VideoStatusPendingUpload VideoStatus = "pending_upload"
+	VideoStatusProcessing    VideoStatus = "processing"
+	VideoStatusReady         VideoStatus = "ready"
 )
 
 type Video struct {
@@ -25,10 +40,19 @@ type Video struct {
 	Key          string          `json:"key" db:"key"`
 	ThumbnailKey string          `json:"thumbnailKey" db:"thumbnail_key"`
 	Visibility   VideoVisibility `json:"visibility" db:"visibility"`
+	Status       VideoStatus     `json:"status" db:"status"`
+	URL          string          `json:"url" db:"-"` // CloudFront URL, not stored in DB
 	// unix timestamp in db (integers)
 	CreatedAt time.Time  `json:"createdAt" db:"created_at"`
 	UpdatedAt time.Time  `json:"updatedAt" db:"updated_at"`
 	DeletedAt *time.Time `json:"deletedAt" db:"deleted_at"`
+}
+
+// SetStreamingURL sets the CloudFront URL for the video based on its ID
+func (v *Video) SetStreamingURL() {
+	if v.Status == VideoStatusReady {
+		v.URL = filepath.Join(CloudFrontDistributionURL, v.ID, "playlist.m3u8")
+	}
 }
 
 type VideoFilters struct {
@@ -44,4 +68,28 @@ type CreateVideoReq struct {
 	Title       string          `json:"title" form:"title"`
 	Description string          `json:"description" form:"description"`
 	Visibility  VideoVisibility `json:"visibility" form:"visibility"`
+}
+
+func (r *CreateVideoReq) Validate() error {
+	if r.Title == "" {
+		return NewAppError(ErrCodeInvalidVideoData, "Video title is required", nil)
+	}
+	if r.Description == "" {
+		return NewAppError(ErrCodeInvalidVideoData, "Video description is required", nil)
+	}
+	if r.Visibility == "" {
+		r.Visibility = VideoVisibilityPublic // default to public
+	}
+	return nil
+}
+
+type ProcessVideoReq struct {
+	VideoID string `json:"videoId"`
+}
+
+func (r *ProcessVideoReq) Validate() error {
+	if r.VideoID == "" {
+		return NewAppError(ErrCodeInvalidVideoData, "Video ID is required", nil)
+	}
+	return nil
 }

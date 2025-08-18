@@ -10,6 +10,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/thantko20/tubbym-backend/internal/domain"
 	"github.com/thantko20/tubbym-backend/internal/services"
+	"github.com/thantko20/tubbym-backend/internal/storage"
 )
 
 func main() {
@@ -20,7 +21,12 @@ func main() {
 	}
 	defer db.Close()
 
-	videoService := services.NewVideoService(db)
+	store, err := storage.NewS3Storage("tubbym-test")
+	if err != nil {
+		slog.Error("Failed to create storage", "error", err)
+		return
+	}
+	videoService := services.NewVideoService(db, store)
 
 	app := fiber.New()
 
@@ -105,7 +111,7 @@ func main() {
 			})
 		}
 
-		video, err := videoService.CreateVideo(c.Context(), *reqPayload)
+		video, presignedUrl, err := videoService.CreateVideo(c.Context(), *reqPayload)
 
 		if err != nil {
 			fmt.Println("Error creating video:", err)
@@ -136,7 +142,44 @@ func main() {
 		return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 			"success": true,
 			"message": "Video created successfully",
-			"data":    video,
+			"data": fiber.Map{
+				"videoId":      video.ID,
+				"presignedUrl": presignedUrl,
+			},
+		})
+	})
+
+	app.Post("/videos/:id/process", func(c *fiber.Ctx) error {
+		videoId := c.Params("id")
+		err := videoService.ProcessVideo(c.Context(), videoId)
+		if err != nil {
+			slog.Error("Failed to process video", "error", err)
+			var domainErr *domain.AppError
+			if errors.As(err, &domainErr) {
+				switch domainErr.Code {
+				case domain.ErrCodeVideoNotFound:
+					return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+						"success": false,
+						"message": domainErr.Message,
+						"code":    domainErr.Code,
+					})
+				default:
+					return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+						"success": false,
+						"message": "Internal Server Error",
+						"code":    domainErr.Code,
+					})
+				}
+			}
+			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+				"success": false,
+				"message": "Internal Server Error",
+				"data":    9999,
+			})
+		}
+		return c.Status(fiber.StatusAccepted).JSON(fiber.Map{
+			"success": true,
+			"message": "Video processing started",
 		})
 	})
 
