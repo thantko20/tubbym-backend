@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"time"
 )
@@ -29,7 +30,40 @@ const (
 	VideoStatusPendingUpload VideoStatus = "pending_upload"
 	VideoStatusProcessing    VideoStatus = "processing"
 	VideoStatusReady         VideoStatus = "ready"
+	VideoStatusError         VideoStatus = "error"
 )
+
+// Video processing event types
+type VideoProcessingEventType string
+
+const (
+	EventTypeVideoStatusUpdate        VideoProcessingEventType = "video:status:update"
+	EventTypeVideoProcessingStarted   VideoProcessingEventType = "video:processing:started"
+	EventTypeVideoProcessingCompleted VideoProcessingEventType = "video:processing:completed"
+	EventTypeVideoProcessingError     VideoProcessingEventType = "video:processing:error"
+)
+
+// VideoProcessingEvent represents a video processing status update
+type VideoProcessingEvent struct {
+	VideoID   string                   `json:"videoId"`
+	EventType VideoProcessingEventType `json:"eventType"`
+	Status    VideoStatus              `json:"status"`
+	Message   string                   `json:"message"`
+	Progress  *int                     `json:"progress,omitempty"` // percentage (0-100)
+	Error     string                   `json:"error,omitempty"`
+	Timestamp time.Time                `json:"timestamp"`
+}
+
+// ToJSON converts the event to JSON string
+func (e *VideoProcessingEvent) ToJSON() string {
+	data, _ := json.Marshal(e)
+	return string(data)
+}
+
+// GetVideoProcessingTopic returns the pubsub topic for a specific video
+func GetVideoProcessingTopic(videoID string) string {
+	return "video_processing:" + videoID
+}
 
 type Video struct {
 	ID           string          `json:"id" db:"id"`

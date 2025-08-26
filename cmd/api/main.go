@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/thantko20/tubbym-backend/internal/domain"
+	"github.com/thantko20/tubbym-backend/internal/pubsub"
 	"github.com/thantko20/tubbym-backend/internal/services"
 	"github.com/thantko20/tubbym-backend/internal/storage"
 )
@@ -26,7 +29,12 @@ func main() {
 		slog.Error("Failed to create storage", "error", err)
 		return
 	}
-	videoService := services.NewVideoService(db, store)
+
+	// Create pubsub broker
+	broker := pubsub.NewBroker()
+	defer broker.Close()
+
+	videoService := services.NewVideoService(db, store, broker)
 
 	app := fiber.New()
 
@@ -183,5 +191,83 @@ func main() {
 		})
 	})
 
+	// SSE endpoint for video processing status
+	app.Get("/videos/:id/status", handleVideoProcessingSSE(broker))
+
 	app.Listen(":8080")
+}
+
+// handleVideoProcessingSSE handles Server-Sent Events for video processing status
+func handleVideoProcessingSSE(broker *pubsub.Broker) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		// Set SSE headers
+		c.Set("Content-Type", "text/event-stream")
+		c.Set("Cache-Control", "no-cache")
+		c.Set("Connection", "keep-alive")
+		c.Set("Access-Control-Allow-Origin", "*")
+		c.Set("Access-Control-Allow-Headers", "Cache-Control")
+
+		videoID := c.Params("id")
+		if videoID == "" {
+			return c.Status(fiber.StatusBadRequest).SendString("event: error\ndata: {\"error\": \"Video ID is required\"}\n\n")
+		}
+
+		// Subscribe to the video processing topic
+		topic := domain.GetVideoProcessingTopic(videoID)
+		client := broker.Subscribe(topic)
+		defer broker.Unsubscribe(topic, client)
+
+		slog.Info("SSE client connected", "videoId", videoID)
+
+		// Send initial connection event
+		initialEvent := fmt.Sprintf("event: connected\ndata: {\"message\": \"Connected to video processing updates\", \"videoId\": \"%s\"}\n\n", videoID)
+		if _, err := c.Write([]byte(initialEvent)); err != nil {
+			slog.Error("Failed to write initial SSE event", "error", err)
+			return err
+		}
+		c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("SSE connection panic recovered", "error", r)
+				}
+			}()
+
+			// Keep connection alive and send events
+			for {
+				select {
+				case message := <-client.Channel():
+					eventData := fmt.Sprintf("event: video_update\ndata: %s\n\n", message)
+					if _, err := w.WriteString(eventData); err != nil {
+						slog.Error("Failed to write SSE event", "error", err)
+						return
+					}
+					if err := w.Flush(); err != nil {
+						slog.Error("Failed to flush SSE event", "error", err)
+						return
+					}
+
+				case <-client.Done():
+					slog.Info("SSE client disconnected", "videoId", videoID)
+					return
+
+				case <-c.Context().Done():
+					slog.Info("SSE connection closed by client", "videoId", videoID)
+					return
+
+				case <-time.After(30 * time.Second):
+					// Send keepalive ping every 30 seconds
+					if _, err := w.WriteString("event: ping\ndata: {\"type\": \"keepalive\"}\n\n"); err != nil {
+						slog.Error("Failed to write keepalive ping", "error", err)
+						return
+					}
+					if err := w.Flush(); err != nil {
+						slog.Error("Failed to flush keepalive ping", "error", err)
+						return
+					}
+				}
+			}
+		})
+
+		return nil
+	}
 }
