@@ -21,7 +21,7 @@ type Client struct {
 
 func NewClient() *Client {
 	return &Client{
-		ch:   make(chan string, 10), // buffered channel to prevent blocking
+		ch:   make(chan string, 10),
 		done: make(chan struct{}),
 	}
 }
@@ -93,12 +93,10 @@ func (b *Broker) Publish(topic, message string) {
 			select {
 			case client.ch <- message:
 			case <-client.done:
-				// Client is closed, remove it
 				go func(c *Client) {
 					b.Unsubscribe(topic, c)
 				}(client)
 			default:
-				// Channel is full, skip this client to prevent blocking
 			}
 		}
 	}

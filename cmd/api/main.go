@@ -197,7 +197,6 @@ func main() {
 	app.Listen(":8080")
 }
 
-// handleVideoProcessingSSE handles Server-Sent Events for video processing status
 func handleVideoProcessingSSE(broker *pubsub.Broker) fiber.Handler {
 	return func(c *fiber.Ctx) error {
 		// Set SSE headers
