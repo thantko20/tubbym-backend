@@ -17,13 +17,20 @@ import (
 	"github.com/thantko20/tubbym-backend/internal/transcoder"
 )
 
+type VideoService interface {
+	GetVideoByID(ctx context.Context, id string) (*domain.Video, error)
+	GetVideos(ctx context.Context, filters *domain.VideoFilters) ([]domain.Video, int, error)
+	CreateVideo(ctx context.Context, payload domain.CreateVideoReq) (*domain.Video, string, error)
+	ProcessVideo(ctx context.Context, videoId string) error
+}
+
 type videoService struct {
 	db      *sql.DB
 	storage storage.Storage
 	pubsub  pubsub.Pubsub
 }
 
-func NewVideoService(db *sql.DB, storage storage.Storage, ps pubsub.Pubsub) *videoService {
+func NewVideoService(db *sql.DB, storage storage.Storage, ps pubsub.Pubsub) VideoService {
 	return &videoService{
 		db:      db,
 		storage: storage,
